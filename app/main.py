@@ -8,6 +8,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg # Importamos Fig
 from matplotlib.animation import FuncAnimation # Importamos FuncAnimation para crear animaciones en matplotlib
 # Importamos la clase SOM desde el archivo some_engine.py
 from some_engine import SOM
+from sklearn.preprocessing import MinMaxScaler
 
 # Definimos la clase RNACApp que maneja la interfaz gráfica y la lógica de la aplicación
 class RNACApp:
@@ -27,6 +28,15 @@ class RNACApp:
         self.train_btn = tk.Button(root, text="Entrenar SOM (Animación)", command=self.start_training)
         self.train_btn.pack(pady=5)
 
+        self.error_btn = tk.Button(root, text="Ver Error RMSE", command=self.plot_errors)
+        self.error_btn.pack(pady=5)
+
+        self.save_umatrix_btn = tk.Button(root, text="Guardar U-Matrix (.png/.csv)", command=self.save_umatrix)
+        self.save_umatrix_btn.pack(pady=5)
+
+        self.save_error_btn = tk.Button(root, text="Guardar Error RMSE (.png)", command=self.save_error)
+        self.save_error_btn.pack(pady=5)
+
         # Gráfico SOM
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(10, 4))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
@@ -39,27 +49,51 @@ class RNACApp:
         filepath = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
         if filepath:
             try:
-                self.data = pd.read_csv(filepath)
+                df = pd.read_csv(filepath)
+                df = df.select_dtypes(include=['float64', 'int64'])  # solo numéricos
+                df = df.dropna(axis=0)  # elimina filas con NaN
+
+                # Normalizamos si es necesario
+                if df.shape[0] > 0:
+                    scaler = MinMaxScaler()
+                    df[df.columns] = scaler.fit_transform(df)
+
+                self.data = df
                 messagebox.showinfo("Éxito", "Datos cargados correctamente.")
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
+
     # Método para iniciar el entrenamiento de la red SOM
     # Este método normaliza los datos, crea una instancia de la clase SOM y comienza la animación del entrenamiento
     # Si no hay datos cargados, muestra una advertencia
-    def start_training(self):
+    def train_som(self):
         if self.data is None:
-            messagebox.showwarning("Advertencia", "Carga un dataset primero.")
+            messagebox.showwarning("Advertencia", "Primero carga un dataset.")
             return
 
-        X = self.data.select_dtypes(include=['float64', 'int64']).values
-        self.X = (X - X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))  # normalización
-        self.som = SOM(x=100, y=100, input_len=self.X.shape[1], learning_rate=0.5, max_iter=300)
-        self.iteration = 0
+        try:
+            X = self.data.select_dtypes(include=['float64', 'int64']).values
+            som = SOM(x=50, y=50, input_len=X.shape[1], max_iter=100)  # Puedes subir a 10000 neuronas después
 
-        self.ani = FuncAnimation(self.fig, self.update_plot, frames=self.som.max_iter,
-                                 interval=50, repeat=False)
-        self.canvas.draw()
+            for i in range(som.max_iter):
+                sample = X[np.random.randint(0, X.shape[0])]
+                som.train_step(sample, i)
+
+                if i % 10 == 0 or i == som.max_iter - 1:
+                    self.ax.clear()
+                    self.ax.set_title(f"Iteración {i}")
+                    self.ax.imshow(som.get_u_matrix().T, cmap='bone_r', origin='lower')
+                    self.canvas.draw()
+                    self.root.update_idletasks()
+
+            messagebox.showinfo("Entrenamiento completo", "La red SOM fue entrenada correctamente.")
+
+            # Guardamos errores para graficarlos después
+            self.last_som = som
+
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
     # Método para actualizar el gráfico en cada iteración del entrenamiento
     # Este método toma una muestra aleatoria de los datos, entrena la SOM con esa
@@ -82,6 +116,54 @@ class RNACApp:
         self.ax2.set_ylabel("Error")
 
         self.canvas.draw()
+
+    def plot_errors(self):
+        if not hasattr(self, "last_som"):
+            messagebox.showwarning("Advertencia", "Entrena primero la red.")
+            return
+
+        self.ax.clear()
+        self.ax.set_title("Evolución del error RMSE")
+        self.ax.plot(self.last_som.errors, label="RMSE")
+        self.ax.set_xlabel("Iteración")
+        self.ax.set_ylabel("Error")
+        self.ax.legend()
+        self.canvas.draw()
+
+def save_umatrix(self):
+    if not hasattr(self, "last_som"):
+        messagebox.showwarning("Advertencia", "Primero entrena la red.")
+        return
+
+    # Guardar imagen PNG
+    fig, ax = plt.subplots()
+    ax.set_title("U-Matrix")
+    im = ax.imshow(self.last_som.get_u_matrix().T, cmap='bone_r', origin='lower')
+    plt.colorbar(im, ax=ax)
+    fig.savefig("umatrix.png")
+    plt.close(fig)
+
+    # Guardar datos CSV
+    u_matrix = self.last_som.get_u_matrix()
+    np.savetxt("umatrix.csv", u_matrix, delimiter=",")
+
+    messagebox.showinfo("Éxito", "U-Matrix guardada como umatrix.png y umatrix.csv")
+
+def save_error(self):
+    if not hasattr(self, "last_som"):
+        messagebox.showwarning("Advertencia", "Primero entrena la red.")
+        return
+
+    fig, ax = plt.subplots()
+    ax.set_title("Error RMSE")
+    ax.plot(self.last_som.errors, label="RMSE")
+    ax.set_xlabel("Iteración")
+    ax.set_ylabel("Error")
+    ax.legend()
+    fig.savefig("rmse_error.png")
+    plt.close(fig)
+
+    messagebox.showinfo("Éxito", "Gráfico de error guardado como rmse_error.png")
 
 # Método principal para ejecutar la aplicación
 # Este método crea una instancia de la clase RNACApp y ejecuta el bucle principal

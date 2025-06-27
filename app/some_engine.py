@@ -16,6 +16,23 @@ def update_weights(weights, sample, influence, lr_t):
     for i in prange(weights.shape[0]):
         weights[i] += lr_t * influence[i] * (sample - weights[i])
 
+@njit(parallel=True)
+def compute_u_matrix(weights, x, y, input_len):
+    u_matrix = np.zeros((x, y), dtype=np.float32)
+    for i in prange(x):
+        for j in range(y):
+            idx = i * y + j
+            neighbors = []
+            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                ni, nj = i + dx, j + dy
+                if 0 <= ni < x and 0 <= nj < y:
+                    neighbors.append(ni * y + nj)
+            if neighbors:
+                dist_sum = 0.0
+                for n in neighbors:
+                    dist_sum += np.linalg.norm(weights[idx] - weights[n])
+                u_matrix[i, j] = dist_sum / len(neighbors)
+    return u_matrix
 # Definimos la clase SOM (Self-Organizing Map)
 # Esta clase implementa una red neuronal competitiva para clustering no supervisado
 class SOM:
@@ -84,15 +101,9 @@ class SOM:
         self.errors.append(error)
 
     def get_u_matrix(self):
-        u_matrix = np.zeros((self.x, self.y))
-        for i in range(self.x):
-            for j in range(self.y):
-                idx = i * self.y + j
-                neighbors = self._get_neighbors(i, j)
-                d = [np.linalg.norm(self.weights[idx] - self.weights[n]) for n in neighbors]
-                u_matrix[i, j] = np.mean(d) if d else 0
-        return u_matrix
-
+        return compute_u_matrix(self.weights, self.x, self.y, self.input_len)
+    # Método para obtener los vecinos de un nodo dado
+    # Este método devuelve los índices de los nodos vecinos en la red SOM
     def _get_neighbors(self, i, j):
         neighbors = []
         for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
