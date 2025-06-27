@@ -1,6 +1,20 @@
-# app/som_engine.py
+# app/some_engine.py
 # importamos numpy para manejar operaciones numéricas
+# importamos numba para acelerar las operaciones con JIT compilation y paralelización
 import numpy as np
+from numba import njit, prange
+
+@njit(parallel=True)
+def compute_distances(weights, sample):
+    dists = np.empty(weights.shape[0], dtype=np.float32)
+    for i in prange(weights.shape[0]):
+        dists[i] = np.linalg.norm(weights[i] - sample)
+    return dists
+
+@njit(parallel=True)
+def update_weights(weights, sample, influence, lr_t):
+    for i in prange(weights.shape[0]):
+        weights[i] += lr_t * influence[i] * (sample - weights[i])
 
 # Definimos la clase SOM (Self-Organizing Map)
 # Esta clase implementa una red neuronal competitiva para clustering no supervisado
@@ -40,34 +54,32 @@ class SOM:
         self.max_iter = max_iter
 
         self.weights = np.random.rand(x * y, input_len).astype(np.float32)
-        self.locations = np.array([[i, j] for i in range(x) for j in range(y)])
-        self.errors = []  # RMSE en cada iteración
+        self.locations = np.array([[i, j] for i in range(x) for j in range(y)], dtype=np.float32)
+        self.errors = []
 
     # Metodos privados de la clase SOM
     # Estos métodos no son accesibles desde fuera de la clase y se utilizan internamente
-    
-    def _euclidean(self, a, b):
-        return np.linalg.norm(a - b)
 
     def _get_bmu_index(self, sample):
-        dists = np.linalg.norm(self.weights - sample, axis=1)
+        dists = compute_distances(self.weights, sample)
         return np.argmin(dists)
 
     def _decay(self, initial, i):
         return initial * np.exp(-i / self.max_iter)
 
     def _neighborhood(self, bmu_idx, sigma_t):
-        dists = np.linalg.norm(self.locations - self.locations[bmu_idx], axis=1)
-        return np.exp(-dists ** 2 / (2 * sigma_t ** 2))
+        bmu_location = self.locations[bmu_idx]
+        dists = np.linalg.norm(self.locations - bmu_location, axis=1)
+        return np.exp(-dists ** 2 / (2 * sigma_t ** 2)).astype(np.float32)
 
     def train_step(self, sample, i):
         bmu_idx = self._get_bmu_index(sample)
         sigma_t = self._decay(self.sigma, i)
         lr_t = self._decay(self.lr, i)
-        influence = self._neighborhood(bmu_idx, sigma_t).reshape(-1, 1)
-        self.weights += lr_t * influence * (sample - self.weights)
+        influence = self._neighborhood(bmu_idx, sigma_t)
+        update_weights(self.weights, sample, influence, lr_t)
 
-        # RMSE como error promedio
+        # Error cuantización
         error = np.mean(np.min(np.linalg.norm(self.weights - sample, axis=1)))
         self.errors.append(error)
 
@@ -77,7 +89,7 @@ class SOM:
             for j in range(self.y):
                 idx = i * self.y + j
                 neighbors = self._get_neighbors(i, j)
-                d = [self._euclidean(self.weights[idx], self.weights[n]) for n in neighbors]
+                d = [np.linalg.norm(self.weights[idx] - self.weights[n]) for n in neighbors]
                 u_matrix[i, j] = np.mean(d) if d else 0
         return u_matrix
 
