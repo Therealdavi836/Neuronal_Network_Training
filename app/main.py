@@ -25,7 +25,7 @@ class RNACApp:
         self.load_btn = tk.Button(root, text="Cargar CSV", command=self.load_data)
         self.load_btn.pack(pady=5)
 
-        self.train_btn = tk.Button(root, text="Entrenar SOM (Animación)", command=self.start_training)
+        self.train_btn = tk.Button(root, text="Entrenar SOM (Animación)", command=self.train_som)
         self.train_btn.pack(pady=5)
 
         self.error_btn = tk.Button(root, text="Ver Error RMSE", command=self.plot_errors)
@@ -37,10 +37,18 @@ class RNACApp:
         self.save_error_btn = tk.Button(root, text="Guardar Error RMSE (.png)", command=self.save_error)
         self.save_error_btn.pack(pady=5)
 
+        # Botón para salir del programa
+        self.exit_btn = tk.Button(root, text="Salir del programa", command=self.root.quit, bg="red", fg="white")
+        self.exit_btn.pack(pady=10)
+
         # Gráfico SOM
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(10, 4))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
         self.canvas.get_tk_widget().pack()
+        
+        # Conectar evento de clic en el gráfico
+        self.canvas.mpl_connect("button_press_event", self.on_click)
+
 
     # Método para cargar datos desde un archivo CSV
     # Este método abre un diálogo para seleccionar un archivo CSV y carga los datos en un DataFrame de pandas
@@ -74,16 +82,16 @@ class RNACApp:
 
         try:
             X = self.data.select_dtypes(include=['float64', 'int64']).values
-            som = SOM(x=50, y=50, input_len=X.shape[1], max_iter=100)  # Puedes subir a 10000 neuronas después
+            som = SOM(x=10, y=10, input_len=X.shape[1], max_iter=100)  # Puedes subir a 10000 neuronas después
 
             for i in range(som.max_iter):
                 sample = X[np.random.randint(0, X.shape[0])]
                 som.train_step(sample, i)
 
                 if i % 10 == 0 or i == som.max_iter - 1:
-                    self.ax.clear()
-                    self.ax.set_title(f"Iteración {i}")
-                    self.ax.imshow(som.get_u_matrix().T, cmap='bone_r', origin='lower')
+                    self.ax1.clear()
+                    self.ax1.set_title(f"Iteración {i}")
+                    self.ax1.imshow(som.get_u_matrix().T, cmap='bone_r', origin='lower')
                     self.canvas.draw()
                     self.root.update_idletasks()
 
@@ -122,48 +130,73 @@ class RNACApp:
             messagebox.showwarning("Advertencia", "Entrena primero la red.")
             return
 
-        self.ax.clear()
-        self.ax.set_title("Evolución del error RMSE")
-        self.ax.plot(self.last_som.errors, label="RMSE")
-        self.ax.set_xlabel("Iteración")
-        self.ax.set_ylabel("Error")
-        self.ax.legend()
+        self.ax1.clear()
+        self.ax1.set_title("Evolución del error RMSE")
+        self.ax1.plot(self.last_som.errors, label="RMSE")
+        self.ax1.set_xlabel("Iteración")
+        self.ax1.set_ylabel("Error")
+        self.ax1.legend()
         self.canvas.draw()
 
-def save_umatrix(self):
-    if not hasattr(self, "last_som"):
-        messagebox.showwarning("Advertencia", "Primero entrena la red.")
-        return
+    def save_umatrix(self):
+        if not hasattr(self, "last_som"):
+            messagebox.showwarning("Advertencia", "Primero entrena la red.")
+            return
 
-    # Guardar imagen PNG
-    fig, ax = plt.subplots()
-    ax.set_title("U-Matrix")
-    im = ax.imshow(self.last_som.get_u_matrix().T, cmap='bone_r', origin='lower')
-    plt.colorbar(im, ax=ax)
-    fig.savefig("umatrix.png")
-    plt.close(fig)
+        # Guardar imagen PNG
+        fig, ax = plt.subplots()
+        ax.set_title("U-Matrix")
+        im = ax.imshow(self.last_som.get_u_matrix().T, cmap='bone_r', origin='lower')
+        plt.colorbar(im, ax=ax)
+        fig.savefig("umatrix.png")
+        plt.close(fig)
 
-    # Guardar datos CSV
-    u_matrix = self.last_som.get_u_matrix()
-    np.savetxt("umatrix.csv", u_matrix, delimiter=",")
+        # Guardar datos CSV
+        u_matrix = self.last_som.get_u_matrix()
+        np.savetxt("umatrix.csv", u_matrix, delimiter=",")
 
-    messagebox.showinfo("Éxito", "U-Matrix guardada como umatrix.png y umatrix.csv")
+        messagebox.showinfo("Éxito", "U-Matrix guardada como umatrix.png y umatrix.csv")
 
-def save_error(self):
-    if not hasattr(self, "last_som"):
-        messagebox.showwarning("Advertencia", "Primero entrena la red.")
-        return
+    def save_error(self):
+        if not hasattr(self, "last_som"):
+            messagebox.showwarning("Advertencia", "Primero entrena la red.")
+            return
 
-    fig, ax = plt.subplots()
-    ax.set_title("Error RMSE")
-    ax.plot(self.last_som.errors, label="RMSE")
-    ax.set_xlabel("Iteración")
-    ax.set_ylabel("Error")
-    ax.legend()
-    fig.savefig("rmse_error.png")
-    plt.close(fig)
+        fig, ax = plt.subplots()
+        ax.set_title("Error RMSE")
+        ax.plot(self.last_som.errors, label="RMSE")
+        ax.set_xlabel("Iteración")
+        ax.set_ylabel("Error")
+        ax.legend()
+        fig.savefig("rmse_error.png")
+        plt.close(fig)
 
-    messagebox.showinfo("Éxito", "Gráfico de error guardado como rmse_error.png")
+        messagebox.showinfo("Éxito", "Gráfico de error guardado como rmse_error.png")
+    
+        # Método para manejar clics en la U-Matrix
+    # Este método se activa cuando el usuario hace clic sobre el mapa SOM
+    # Identifica la neurona (i, j) más cercana al clic y muestra sus pesos o información relevante
+    def on_click(self, event):
+        if not hasattr(self, "last_som"):
+            return
+
+        if event.inaxes != self.ax1:
+            return  # Ignoramos clics fuera de la U-Matrix
+
+        x_click, y_click = int(event.xdata), int(event.ydata)
+        if not (0 <= x_click < self.last_som.x and 0 <= y_click < self.last_som.y):
+            return
+
+        index = y_click * self.last_som.x + x_click  # Transponemos por .T
+        weights = self.last_som.weights[index]
+
+        # Mostrar en la segunda gráfica
+        self.ax2.clear()
+        self.ax2.set_title(f"Pesos de la neurona ({x_click}, {y_click})")
+        self.ax2.plot(weights, marker='o', linestyle='-')
+        self.ax2.set_xlabel("Dimensión")
+        self.ax2.set_ylabel("Valor del peso")
+        self.canvas.draw()
 
 # Método principal para ejecutar la aplicación
 # Este método crea una instancia de la clase RNACApp y ejecuta el bucle principal
